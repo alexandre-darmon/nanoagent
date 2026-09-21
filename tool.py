@@ -1,5 +1,7 @@
 import yfinance as yf
 import math
+import os
+import skills as s
 
 TOOLS_SCHEMA = [
     {
@@ -29,7 +31,34 @@ TOOLS_SCHEMA = [
                 "required": ["ticker"],
             },
         },
-    }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "load_skill",
+            "description": "Loads the full instructions of a skill from its name",
+            "parameters": {
+                "type": "object",
+                "properties": {"skill_name": {"type": "string"}},
+                "required": ["skill_name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "Saves text as a markdown (.md) file in the reports folder. Use it only when asked to save or write a report to a file.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {"type": "string", "description": "File name only, e.g. apple_report.md"},
+                    "content": {"type": "string", "description": "Full markdown content of the file"},
+                },
+                "required": ["filename", "content"],
+            },
+        },
+    },
 ] 
 
 def format_number(value) -> str:
@@ -65,7 +94,31 @@ def get_income_statement(ticker: str) -> str:
     return f"{ticker} latest quarter (ended {quarter_end}): revenue {revenue}, net income {net_income}."
 
 
-TOOL_DISPATCH = {"get_stock_price": get_stock_price, "get_income_statement": get_income_statement}
+REPORTS_DIR = "reports"
+
+def write_file(filename: str, content: str) -> str:
+    """
+    Writes a .md file in REPORTS_DIR. Unlike load_skill, this has a real side effect
+    on the disk, which is exactly why it is a tool and not a skill.
+    """
+    # basename() drops any folder part, so the model cannot write outside REPORTS_DIR ("../x", "/etc/x")
+    name = os.path.basename(filename)
+    if name.endswith(".md"):
+        name = name[:-3]
+    if not name:
+        return "Invalid filename."
+    path = os.path.join(REPORTS_DIR, name + ".md")
+
+    os.makedirs(REPORTS_DIR, exist_ok=True)
+    # Never overwrite silently: tell the model so it can pick another name.
+    if os.path.exists(path):
+        return f"{path} already exists. Choose a different filename."
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+    return f"Saved {len(content)} characters to {path}."
+
+
+TOOL_DISPATCH = {"get_stock_price": get_stock_price, "get_income_statement": get_income_statement, "load_skill": s.load_skill, "write_file": write_file}
 
 def execute_tool(name: str, arguments_json: str) -> str:
     import json

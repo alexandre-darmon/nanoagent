@@ -2,6 +2,7 @@ from llm import call_llm
 from tool import TOOLS_SCHEMA, execute_tool
 from logger import log_turn
 from prompts import PROMPTS
+from skills import discover_skills
 import time
 
 def run_agent(system_prompt: str, user_message: str, tools: list, max_iterations: int = 10) -> list:
@@ -37,17 +38,30 @@ def run_agent(system_prompt: str, user_message: str, tools: list, max_iterations
 
     return messages
 
+def build_system_prompt(base_prompt: str) -> str:
+    skills = discover_skills()
+    if not skills:
+        return base_prompt
+    summary = "\n".join(f"- {s['name']}: {s['description']}" for s in skills)
+    return (
+        f"{base_prompt}\n\n"
+        f"Available skills (use `load_skill` to load the full instructions "
+        f"before applying them):\n{summary}"
+    )
+
+print(build_system_prompt(PROMPTS["extraction"]))  # for debugging, shows the system prompt with skills
+
 if __name__ == "__main__":
-    question = "What is the price and income statement for Apple, Microsoft and Nvidia stock?"
+    question = "What is the price and income statement for Apple stock? Interpret the results and summarize it. Then write a report in markdown format and save it to a file named apple_report.md."
 
     # Two contexts: each run_agent() starts from an empty messages list.
     # The only link between them is the text we pass by hand (explicit handoff).
-    messages_1 = run_agent(PROMPTS["extraction"], question, TOOLS_SCHEMA)
-    extracted = messages_1[-1].content  # last message = assistant object (not a dict) -> .content
+    #messages_1 = run_agent(PROMPTS["extraction"], question, TOOLS_SCHEMA)
+    #extracted = messages_1[-1].content  # last message = assistant object (not a dict) -> .content
 
-    messages_2 = run_agent(PROMPTS["summary"], extracted, [])
-    print(messages_2[-1].content)
+    #messages_2 = run_agent(PROMPTS["summary"], extracted, [])
+    #print(messages_2[-1].content)
 
     # Single context, same job in one prompt: compare its tokens/latency in run.log.
-    messages_single = run_agent(PROMPTS["single"], question, TOOLS_SCHEMA)
+    messages_single = run_agent(build_system_prompt(PROMPTS["single"]), question, TOOLS_SCHEMA)
     print(messages_single[-1].content)
