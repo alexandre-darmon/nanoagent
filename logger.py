@@ -1,6 +1,6 @@
 import json, time
 
-def log_turn(iteration: int, tool_calls, usage, latency_s: float, log_path="logs/run.log"):
+def log_turn(iteration: int, tool_calls, usage, latency_s: float, content, log_path="logs/run.log"):
     
     entry = {
         "timestamp": time.strftime("%m/%d/%Y %H:%M:%S"),
@@ -11,6 +11,8 @@ def log_turn(iteration: int, tool_calls, usage, latency_s: float, log_path="logs
         "tokens_prompt": usage.prompt_tokens if usage else None,
         "tokens_completion": usage.completion_tokens if usage else None,
         "latency_s": round(latency_s, 2),
+        # message.content is None when the model only emits tool_calls
+        "answer": content,
     }
     with open(log_path, "a") as f:
         f.write(json.dumps(entry) + "\n")
