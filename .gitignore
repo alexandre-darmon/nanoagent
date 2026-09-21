@@ -6,3 +6,4 @@ __pycache__/
 spec.md
 CLAUDE.md
 formated_completion_object.py
+logs/*
