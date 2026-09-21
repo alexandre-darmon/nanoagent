@@ -59,9 +59,10 @@ def get_income_statement(ticker: str) -> str:
     if stmt.empty:
         return f"No income statement found for {ticker}."
     latest = stmt.iloc[:, 0]   # first column = most recent quarter
+    quarter_end = stmt.columns[0].strftime("%Y-%m-%d")   # column labels are the period end dates
     revenue = format_number(latest.get("Total Revenue"))
     net_income = format_number(latest.get("Net Income"))
-    return f"{ticker} latest quarter: revenue {revenue}, net income {net_income}."
+    return f"{ticker} latest quarter (ended {quarter_end}): revenue {revenue}, net income {net_income}."
 
 
 TOOL_DISPATCH = {"get_stock_price": get_stock_price, "get_income_statement": get_income_statement}

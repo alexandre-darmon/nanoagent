@@ -1,6 +1,7 @@
 from llm import call_llm
 from tool import TOOLS_SCHEMA, execute_tool
 from logger import log_turn
+from prompts import PROMPTS
 import time
 
 def run_agent(system_prompt: str, user_message: str, tools: list, max_iterations: int = 10) -> list:
@@ -12,7 +13,7 @@ def run_agent(system_prompt: str, user_message: str, tools: list, max_iterations
         latency = time.time() - start
 
         choice = response.choices[0]
-        log_turn(i, choice.message.tool_calls, response.usage, latency)
+        log_turn(i, choice.message.tool_calls, response.usage, latency, choice.message.content)
 
         # "stop" = the model has finished its answer and there are no tool_calls to process.
         if choice.finish_reason == "stop":
@@ -37,9 +38,16 @@ def run_agent(system_prompt: str, user_message: str, tools: list, max_iterations
     return messages
 
 if __name__ == "__main__":
-    messages = run_agent(
-        system_prompt="You are a financial assistant.",
-        user_message="What is the price and income statement for Apple stock?",
-        tools=TOOLS_SCHEMA,
-    )
-    print(messages[-1].content)  # last message = final assistant answer
+    question = "What is the price and income statement for Apple, Microsoft and Nvidia stock?"
+
+    # Two contexts: each run_agent() starts from an empty messages list.
+    # The only link between them is the text we pass by hand (explicit handoff).
+    messages_1 = run_agent(PROMPTS["extraction"], question, TOOLS_SCHEMA)
+    extracted = messages_1[-1].content  # last message = assistant object (not a dict) -> .content
+
+    messages_2 = run_agent(PROMPTS["summary"], extracted, [])
+    print(messages_2[-1].content)
+
+    # Single context, same job in one prompt: compare its tokens/latency in run.log.
+    messages_single = run_agent(PROMPTS["single"], question, TOOLS_SCHEMA)
+    print(messages_single[-1].content)
