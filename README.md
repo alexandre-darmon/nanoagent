@@ -48,7 +48,20 @@ What it deliberately does **not** do: agent-to-agent communication, persistent m
 
 ### What multi-context cost, measured
 
-`python main.py` and `python main.py multi` start from the same question with the same tools and skills. The catch is visible in the code: the second call receives only the text the first one produced, never the original question. That is the handoff, and it is also why a mistake in step one travels to step two unnoticed — a fresh context has no way to check what it was handed. An earlier measurement put the two-context version at roughly 40% more tokens, but it ran on a different free model and an earlier version of these demos; run-to-run variation on a free model is wide enough that quoting a single percentage today would be false precision. What the split reliably buys is per-stage logs and a second step that only has one job.
+Both demos answer the same question with the same tools and skills. The only difference is one
+context or two.
+
+- **Two contexts cost more.** An earlier measurement put the split at roughly 40% more tokens.
+  Treat it as indicative: it ran on another model, and free endpoints vary too much for a single
+  percentage to mean much.
+- **The handoff is blind.** The second call receives only the text the first produced, never the
+  original question — so an error in step one travels to step two unchallenged. We watched a
+  failed extraction get faithfully summarised.
+- **What it buys** is per-stage logs and a second step with only one job.
+
+**Conclusion: for this task, one context wins.** Splitting pays off when the first stage is far
+bigger than the second, or when the stages genuinely need different tools, prompts or models —
+none of which is true here. Reach for it when you can name the reason, not by reflex.
 
 ### What progressive disclosure costs, measured
 
@@ -125,34 +138,34 @@ fetches them, pulls in the formatting skill, writes the report, and signs off.
   [5] answer | 1007→88 tokens (74 reasoning) | 0.85s
 ```
 
-Nothing in the code decides that order — the model does, one turn at a time. It loads two skills because the question asks for two things, interpretation and a written report, and each `load_skill` call takes one name. Long arguments are kept out of the printed line; `logs/run.log` stores every call in full, including the report body handed to `write_file`, and which model and provider answered. Notice
-`tokens_prompt` climbing from 443 to 1007: every turn re-sends the whole conversation,
-which is what makes context size a running cost rather than a one-off.
+Nothing in the code decides that order — the model does, one turn at a time, and every turn
+re-sends the whole conversation (`tokens_prompt` climbs from 443 to 1007). What five runs across
+different models and providers taught us:
 
-The `reasoning` figures are the other half of the story. Many models on OpenRouter are reasoning
-models: they think before answering, that thinking is billed inside `tokens_completion`, and it
-never appears in the reply. How much varies enormously — 30% of everything generated here, but on
-one of the free models tested a single turn spent 1327 of its 1351 tokens thinking, and took 29
-seconds to do it.
+- **Tool-calling style differs wildly, and it costs.** `nex-n2.5-pro` fired all four tool calls
+  in a single turn and finished in 3 turns (3788 prompt tokens). `gpt-oss-20b` calls one tool per
+  turn and needs 6 (4258 prompt tokens). Parallel calls win time *and* tokens, because each extra
+  turn re-sends everything before it.
+- **Some models never call tools at all.** A 2.6B free model ran the loop happily but **never
+  once called `load_skill`**, so every guardrail in the skills silently stopped applying and the
+  answer drifted into the investment advice they explicitly forbid. Tool-calling reliability is a
+  capability, not a given.
+- **The provider is a second dial below the model.** OpenRouter serves one model from many
+  providers and picks one per call. Same question, same model: Darkbloom took **18s** and followed
+  the skills exactly; sorting by throughput gave CoreWeave and Groq at **8s**, looser. Darkbloom
+  also returned an HTTP 400 mid-run and sat behind several five-minute stalls.
+- **Thinking is billed but invisible.** Most models here reason before answering, inside
+  `tokens_completion` and absent from the reply — 30% of everything generated above, and on one
+  free model a single turn spent 1327 of its 1351 tokens thinking, taking 29 seconds.
+- **Instruction design beat every code change.** That 1351-token turn was the model re-rendering
+  a report it had already written to disk. One sentence added to `skills/stock-report-format/SKILL.md`
+  cut it to between 15 and 90 tokens, depending on provider. No code change would have found it.
 
-That turn is worth dwelling on. Having written the report to a file, the model rendered the whole
-table again as its reply. The fix was one sentence in `skills/stock-report-format/SKILL.md`
-telling it not to repeat a report it had just saved — the turn dropped to between 15 and 90 tokens depending on which provider served it. The expensive
-behaviour was instruction design, not the loop, and no code change would have found it.
-
-Model choice matters more than anything else here, which is the point of keeping it to one
-variable. A 2.6B free model ran the loop happily but **never once called `load_skill`**, so every
-guardrail in the skills silently stopped applying and the answer drifted into investment advice
-the skills explicitly forbid. Tool-calling reliability is a capability, not a given.
-
-Below the model there is a second dial. OpenRouter serves one model from many providers and picks
-one per call, so identical code gives different results run to run. Measured on the same question
-and the same model: routing freely landed on Darkbloom, which took **18s** but followed the skills
-to the letter (a 15-token sign-off); asking for throughput landed on CoreWeave and Groq, which
-took **8s** and were looser (88 tokens, some of the report repeated). Darkbloom is also the
-provider that returned an HTTP 400 mid-run and sat behind several five-minute stalls. `llm.py`
-therefore asks OpenRouter to sort by throughput, and `logs/run.log` records the provider on every
-turn — without it, two runs of the same code are not comparable.
+**In short: the loop is the easy part.** Roughly twenty lines drive it, and they barely changed
+across all of this. Everything that actually decided cost, speed and correctness sat outside
+them — which model, which provider, and how the instructions were written. That is why `MODEL` is
+a single variable and why `logs/run.log` records the model, the provider, the tokens and the
+reasoning on every turn: none of the above is visible without it.
 
 ## Glossary
 
