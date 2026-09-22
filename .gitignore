@@ -2,8 +2,7 @@ __pycache__/
 .env
 .envrc
 .venv
-
+.claude/
 spec.md
-CLAUDE.md
-formated_completion_object.py
 logs/*
+reports/*

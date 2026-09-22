@@ -1,15 +1,24 @@
-import yfinance as yf
+"""Tools: the actions the model can ask us to run.
+
+Adding a tool takes three edits in this file: its schema (what the model sees), its
+function (what actually runs), and its entry in TOOL_DISPATCH (the link between the two).
+"""
+import json
 import math
 import os
-import skills as s
 
+import yfinance as yf
+
+from skills import load_skill
+
+# What the model sees: a menu of tools, described in the OpenAI function-calling format.
 TOOLS_SCHEMA = [
     {
-        "type": "function",       # ← dit au modèle : "ceci est une fonction que tu peux appeler"
+        "type": "function",       # tells the model: "this is a function you can call"
         "function": {
-            "name": "get_stock_price",              # ← le nom exact que le modèle utilisera pour t'appeler
-            "description": "Get the price of a stock given its ticker",   # ← LA partie la plus importante
-            "parameters": {                          # ← le formulaire que le modèle doit remplir
+            "name": "get_stock_price",   # the exact name the model uses to call it
+            "description": "Get the price of a stock given its ticker",   # the model reads this to decide when to use the tool
+            "parameters": {              # the form the model must fill in (JSON Schema)
                 "type": "object",
                 "properties": {
                     "ticker": {"type": "string", "description": "Stock ticker (e.g., AAPL)"}
@@ -21,9 +30,9 @@ TOOLS_SCHEMA = [
     {
         "type": "function",
         "function": {
-            "name": "get_income_statement",              # ← le nom exact que le modèle utilisera pour t'appeler
-            "description": "Get the quaterly income statement of a stock given its ticker",   # ← LA partie la plus importante
-            "parameters": {                          # ← le formulaire que le modèle doit remplir
+            "name": "get_income_statement",
+            "description": "Get the quarterly income statement of a stock given its ticker",
+            "parameters": {
                 "type": "object",
                 "properties": {
                     "ticker": {"type": "string", "description": "Stock ticker (e.g., AAPL)"}
@@ -33,6 +42,8 @@ TOOLS_SCHEMA = [
         },
     },
     {
+        # load_skill only returns text (see skills.py). It is declared like a tool because
+        # that is how the model asks for something, but it has no effect on the outside world.
         "type": "function",
         "function": {
             "name": "load_skill",
@@ -59,10 +70,12 @@ TOOLS_SCHEMA = [
             },
         },
     },
-] 
+]
+
 
 def format_number(value) -> str:
-    """Turn 94930000000.0 into '94.93B'. Handles None/NaN and negatives."""
+    """Turns 94930000000.0 into '94.93B' so large figures are short and readable."""
+    # yfinance returns NaN (not None) for missing rows, and NaN would print as "nan".
     if value is None or math.isnan(value):
         return "N/A"
     sign = "-" if value < 0 else ""
@@ -72,18 +85,19 @@ def format_number(value) -> str:
             return f"{sign}{value / threshold:.2f}{suffix}"
     return f"{sign}{value:.2f}"
 
+
 def get_stock_price(ticker: str) -> str:
-    """
-    Récupère le prix d'une action à partir de son ticker.
-    """
+    """Returns the current price of a stock, as a sentence the model can read."""
     stock = yf.Ticker(ticker)
     price = stock.info.get("regularMarketPrice")
     if price is not None:
         return f"The current price of {ticker} stock is {price} USD."
     else:
-        return f"Unable to retrieve the price for ticker {ticker}."    
+        return f"Unable to retrieve the price for ticker {ticker}."
+
 
 def get_income_statement(ticker: str) -> str:
+    """Returns revenue and net income for the latest quarter, with the quarter end date."""
     stmt = yf.Ticker(ticker).quarterly_income_stmt
     if stmt.empty:
         return f"No income statement found for {ticker}."
@@ -95,6 +109,7 @@ def get_income_statement(ticker: str) -> str:
 
 
 REPORTS_DIR = "reports"
+
 
 def write_file(filename: str, content: str) -> str:
     """
@@ -110,17 +125,38 @@ def write_file(filename: str, content: str) -> str:
     path = os.path.join(REPORTS_DIR, name + ".md")
 
     os.makedirs(REPORTS_DIR, exist_ok=True)
-    # Never overwrite silently: tell the model so it can pick another name.
-    if os.path.exists(path):
-        return f"{path} already exists. Choose a different filename."
+    # Overwrite, on purpose. An earlier version renamed the file when it already existed, and
+    # the model read the unfamiliar path back as a failure and called the tool again — four
+    # times in one run, each attempt creating yet another file. A tool that returns something
+    # other than what was asked for invites a retry loop; give back the name that was requested.
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
     return f"Saved {len(content)} characters to {path}."
 
 
-TOOL_DISPATCH = {"get_stock_price": get_stock_price, "get_income_statement": get_income_statement, "load_skill": s.load_skill, "write_file": write_file}
+# Link between a tool's name (what the model says) and the function to run.
+TOOL_DISPATCH = {
+    "get_stock_price": get_stock_price,
+    "get_income_statement": get_income_statement,
+    "load_skill": load_skill,
+    "write_file": write_file,
+}
+
+# Safety net: every tool shown to the model must have a function behind it, and vice versa.
+assert {t["function"]["name"] for t in TOOLS_SCHEMA} == set(TOOL_DISPATCH), "TOOLS_SCHEMA and TOOL_DISPATCH are out of sync"
+
 
 def execute_tool(name: str, arguments_json: str) -> str:
-    import json
-    args = json.loads(arguments_json)
-    return str(TOOL_DISPATCH[name](**args))
+    """
+    Runs the tool the model asked for and returns its result as text.
+    Errors are returned as text instead of raised, so the model can read them and adapt.
+    """
+    if name not in TOOL_DISPATCH:
+        return f"Unknown tool: {name}"
+    try:
+        # Unlike Anthropic's native API (where the tool input is already a dict), OpenAI-style
+        # tool_calls give the arguments as a JSON *string*, hence json.loads().
+        args = json.loads(arguments_json)
+        return str(TOOL_DISPATCH[name](**args))
+    except Exception as e:
+        return f"Error while running {name}: {e}"
