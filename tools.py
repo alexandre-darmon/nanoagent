@@ -6,7 +6,6 @@ function (what actually runs), and its entry in TOOL_DISPATCH (the link between 
 import json
 import math
 import os
-import time
 
 import yfinance as yf
 
@@ -126,10 +125,10 @@ def write_file(filename: str, content: str) -> str:
     path = os.path.join(REPORTS_DIR, name + ".md")
 
     os.makedirs(REPORTS_DIR, exist_ok=True)
-    # Never overwrite an existing report: add a timestamp to the name instead.
-    # The returned message contains the real path, so the model can tell the user.
-    if os.path.exists(path):
-        path = os.path.join(REPORTS_DIR, f"{name}_{time.strftime('%Y%m%d_%H%M%S')}.md")
+    # Overwrite, on purpose. An earlier version renamed the file when it already existed, and
+    # the model read the unfamiliar path back as a failure and called the tool again — four
+    # times in one run, each attempt creating yet another file. A tool that returns something
+    # other than what was asked for invites a retry loop; give back the name that was requested.
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
     return f"Saved {len(content)} characters to {path}."
