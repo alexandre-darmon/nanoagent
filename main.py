@@ -31,6 +31,13 @@ def run_agent(system_prompt: str, user_message: str, tools: list, max_iterations
     print(f"→ {MODEL}", flush=True)
 
     for i in range(max_iterations):
+        # log_turn only prints once the call has returned, so a slow turn showed nothing at all
+        # and looked like the agent had stopped. Mark the turn as in flight; "\r" lets the
+        # finished log line overwrite the placeholder. Only on a real terminal: redirected to a
+        # file, "\r" overwrites nothing and every turn would appear twice.
+        if sys.stdout.isatty():
+            print(f"  [{i}] ...", end="\r", flush=True)
+
         start = time.time()
         response = call_llm(system_prompt, messages, tools)
         latency = time.time() - start
@@ -38,7 +45,8 @@ def run_agent(system_prompt: str, user_message: str, tools: list, max_iterations
         choice = response.choices[0]
         # response.model is what actually answered, which is not always what we asked for:
         # OpenRouter may route elsewhere. Log that rather than our own MODEL constant.
-        log_turn(i, choice.message.tool_calls, response.usage, latency, choice.message.content, response.model)
+        log_turn(i, choice.message.tool_calls, response.usage, latency, choice.message.content,
+                 response.model, getattr(response, "provider", None))
 
         # Keep the model's message as-is in the history: when it asks for tools it carries the
         # tool_calls, and each tool result below must point back to one of them.
@@ -120,9 +128,11 @@ def demo_multi_context() -> None:
     except the text we hand it — that is the explicit handoff, and the reason a mistake in
     the first step travels to the second unnoticed.
     """
+    print("=== Step 1: extract the data ===")
     messages_1 = run_agent(build_system_prompt(PROMPTS["extraction"]), QUESTION, TOOLS_SCHEMA)
     extracted = final_answer(messages_1)
 
+    print("=== Step 2: summarize the data ===")
     messages_2 = run_agent(build_system_prompt(PROMPTS["summary"]), extracted, TOOLS_SCHEMA)
     print(final_answer(messages_2))
 

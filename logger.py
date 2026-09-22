@@ -33,7 +33,8 @@ def _reasoning_tokens(usage):
     return getattr(details, "reasoning_tokens", None) if details else None
 
 
-def log_turn(iteration: int, tool_calls, usage, latency_s: float, content, model=None, log_path="logs/run.log"):
+def log_turn(iteration: int, tool_calls, usage, latency_s: float, content, model=None, provider=None,
+             log_path="logs/run.log"):
     """
     Records one model call.
 
@@ -46,6 +47,9 @@ def log_turn(iteration: int, tool_calls, usage, latency_s: float, content, model
     entry = {
         "timestamp": time.strftime("%m/%d/%Y %H:%M:%S"),
         "model": model,
+        # OpenRouter serves one model from many providers, and they do not behave identically
+        # (speed, and how closely they follow instructions). Without this, runs are not comparable.
+        "provider": provider,
         "iteration": iteration,
         "tools_called": [tc.function.name for tc in (tool_calls or [])],
         # On the OpenAI side, arguments come as a JSON *string*, not a dict.

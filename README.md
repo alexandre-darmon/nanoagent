@@ -112,22 +112,21 @@ python main.py multi              # the same question, split over two contexts
 ```
 
 Each turn prints one line, and the full entry (tool arguments, answer, tokens) goes to `logs/run.log`.
-A real run of `python main.py`: the model pulls in one skill, then the other, fetches each
-figure, writes the report, and signs off in a single line.
+A real run of `python main.py`: the model pulls in the skill it needs to interpret the figures,
+fetches them, pulls in the formatting skill, writes the report, and signs off.
 
 ```
 → openai/gpt-oss-20b
-  [0] load_skill -> income-statement-analysis | 419→68 tokens (40 reasoning) | 1.91s
-  [1] load_skill -> stock-report-format | 656→32 tokens (6 reasoning) | 3.53s
-  [2] get_stock_price -> AAPL | 810→30 tokens (5 reasoning) | 1.50s
-  [3] get_income_statement -> AAPL | 868→30 tokens (5 reasoning) | 4.55s
-  [4] write_file -> apple_report.md | 941→232 tokens (62 reasoning) | 5.66s
-  [5] answer | 1219→15 tokens | 3.64s
-reports/apple_report_20260922_105458.md
+  [0] load_skill -> income-statement-analysis | 443→64 tokens (37 reasoning) | 0.43s
+  [1] get_stock_price -> AAPL | 602→70 tokens (57 reasoning) | 0.56s
+  [2] get_income_statement -> AAPL | 649→37 tokens (15 reasoning) | 0.73s
+  [3] load_skill -> stock-report-format | 711→113 tokens (106 reasoning) | 0.91s
+  [4] write_file -> apple_report.md | 846→810 tokens (634 reasoning) | 4.57s
+  [5] answer | 1007→88 tokens (74 reasoning) | 0.85s
 ```
 
-Nothing in the code decides that order — the model does, one turn at a time. It loads two skills because the question asks for two things, interpretation and a written report, and each `load_skill` call takes one name. Long arguments are kept out of the printed line; `logs/run.log` stores every call in full, including the report body handed to `write_file`, and which model answered. Notice
-`tokens_prompt` climbing from 419 to 1219: every turn re-sends the whole conversation,
+Nothing in the code decides that order — the model does, one turn at a time. It loads two skills because the question asks for two things, interpretation and a written report, and each `load_skill` call takes one name. Long arguments are kept out of the printed line; `logs/run.log` stores every call in full, including the report body handed to `write_file`, and which model and provider answered. Notice
+`tokens_prompt` climbing from 443 to 1007: every turn re-sends the whole conversation,
 which is what makes context size a running cost rather than a one-off.
 
 The `reasoning` figures are the other half of the story. Many models on OpenRouter are reasoning
@@ -138,13 +137,22 @@ seconds to do it.
 
 That turn is worth dwelling on. Having written the report to a file, the model rendered the whole
 table again as its reply. The fix was one sentence in `skills/stock-report-format/SKILL.md`
-telling it not to repeat a report it had just saved — the turn dropped to 15 tokens. The expensive
+telling it not to repeat a report it had just saved — the turn dropped to between 15 and 90 tokens depending on which provider served it. The expensive
 behaviour was instruction design, not the loop, and no code change would have found it.
 
 Model choice matters more than anything else here, which is the point of keeping it to one
 variable. A 2.6B free model ran the loop happily but **never once called `load_skill`**, so every
 guardrail in the skills silently stopped applying and the answer drifted into investment advice
 the skills explicitly forbid. Tool-calling reliability is a capability, not a given.
+
+Below the model there is a second dial. OpenRouter serves one model from many providers and picks
+one per call, so identical code gives different results run to run. Measured on the same question
+and the same model: routing freely landed on Darkbloom, which took **18s** but followed the skills
+to the letter (a 15-token sign-off); asking for throughput landed on CoreWeave and Groq, which
+took **8s** and were looser (88 tokens, some of the report repeated). Darkbloom is also the
+provider that returned an HTTP 400 mid-run and sat behind several five-minute stalls. `llm.py`
+therefore asks OpenRouter to sort by throughput, and `logs/run.log` records the provider on every
+turn — without it, two runs of the same code are not comparable.
 
 ## Glossary
 

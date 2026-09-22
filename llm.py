@@ -14,9 +14,10 @@ load_dotenv()  # reads OPENROUTER_API_KEY from the .env file
 client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
     api_key=os.environ["OPENROUTER_API_KEY"],
-    # The SDK waits 10 minutes per attempt by default. A free model that stops responding
-    # would then look like a frozen program rather than an error, so cap it.
-    timeout=60.0,
+    # A normal turn here takes a few seconds. Left alone the SDK waits 10 minutes per attempt
+    # and silently retries twice, so one stalled provider becomes five minutes of no output.
+    timeout=30.0,
+    max_retries=1,
 )
 
 # The only place in the project where a model name appears.
@@ -35,6 +36,12 @@ def call_llm(system_prompt: str, messages: list, tools: list | None = None) -> C
     full_messages = [{"role": "system", "content": system_prompt}] + messages
 
     kwargs = {"model": MODEL, "messages": full_messages}
+
+    # OpenRouter-specific, not part of the OpenAI API: it serves a popular model from a dozen
+    # providers of uneven quality and picks one per call. Without this, a bad draw turns a
+    # 3-second turn into minutes. `extra_body` is how the SDK passes fields it does not know.
+    kwargs["extra_body"] = {"provider": {"sort": "throughput"}}
+
     if tools:
         kwargs["tools"] = tools
         # Temperature 0 makes the model's tool choices as repeatable as possible between runs.
