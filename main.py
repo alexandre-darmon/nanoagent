@@ -128,8 +128,12 @@ def demo_multi_context() -> None:
     except the text we hand it — that is the explicit handoff, and the reason a mistake in
     the first step travels to the second unnoticed.
     """
+    # Stage 1 gathers data; it has no business writing files. Removing the tool beats telling it
+    # not to, since QUESTION explicitly asks for a saved report and the model would have to choose.
+    read_only = [t for t in TOOLS_SCHEMA if t["function"]["name"] != "write_file"]
+
     print("=== Step 1: extract the data ===")
-    messages_1 = run_agent(build_system_prompt(PROMPTS["extraction"]), QUESTION, TOOLS_SCHEMA)
+    messages_1 = run_agent(build_system_prompt(PROMPTS["extraction"]), QUESTION, read_only)
     extracted = final_answer(messages_1)
 
     print("=== Step 2: summarize the data ===")

@@ -48,8 +48,10 @@ What it deliberately does **not** do: agent-to-agent communication, persistent m
 
 ### What multi-context cost, measured
 
-Both demos answer the same question with the same tools and skills. The only difference is one
-context or two.
+Both demos answer the same question. `single` does it in one context; `multi` splits it in two,
+and the stages are deliberately not equal — the extraction stage is handed a tool list with
+`write_file` removed, so it gathers and nothing more, and the summarizing stage owns producing
+the report. That separation is the point: capability, not instruction.
 
 - **Two contexts cost more.** An earlier measurement put the split at roughly 40% more tokens.
   Treat it as indicative: it ran on another model, and free endpoints vary too much for a single
