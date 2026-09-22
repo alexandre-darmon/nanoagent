@@ -28,71 +28,35 @@ flowchart LR
 
 This is the standard **tool-calling loop** (the "agent loop"): the model decides, we run the tool it asked for, we feed the result back, and it decides again. In ReAct terms, that is reason → act → observe, repeated until the model answers with text instead of a tool call. Every call to the model is also written to `logs/run.log`.
 
-The "tool or answer?" decision reads the response's `finish_reason`:
+The "tool or answer?" decision reads whether the reply carries `tool_calls`. The response's
+`finish_reason` says why the model stopped, and the loop uses it to catch the cases that are not a
+clean answer:
 
 | `finish_reason` | Meaning | What the loop does |
 |---|---|---|
 | `tool_calls` | The model wants one or more tools run | Run them, add each result as a `role: "tool"` message, ask again |
 | `stop` | The model is done | Return the answer |
 | `length` | The answer was cut off (token limit) | Warn and stop |
+| anything else (`error`, `content_filter`…) | Provider-specific, with no tool calls | Warn and stop |
+
+Providers do not all fill `finish_reason` the same way, which is why the loop does not rely on
+it to decide whether to run tools.
 
 ## What it demonstrates
 
-- **Agent loop** — request → tool_calls → tool execution → re-injection → repeat, until the model signals it's done (`finish_reason == "stop"`)
-- **Function calling**, OpenAI-compatible format, via [OpenRouter](https://openrouter.ai) — swap models with one variable, no code changes
+- **Agent loop** — request → tool_calls → tool execution → re-injection → repeat, until the model answers with text instead of a tool call
+- **Function calling**, OpenAI-compatible format, via [OpenRouter](https://openrouter.ai) — swap models by editing one line in `llm.py`, nothing else
 - **Skills** — a minimal progressive-disclosure system. Only a skill's name and description sit in the system prompt; the model loads the full instructions on demand via a `load_skill` tool call. Same pattern Claude's own Skills use, reimplemented from first principles
-- **Tool vs skill** — `load_skill` only returns text (context, no side effect), while `write_file` really changes the disk, so it is a tool. It never overwrites a report: if the file exists, it adds a timestamp to the name
+- **Tool vs skill** — `load_skill` only returns text (context, no side effect), while `write_file` really changes the disk, so it is a tool. It is fenced to `.md` files in `reports/`, and it overwrites an existing report on purpose: it saves to the exact name it was asked for, because a renamed file reads to the model as a failure and it calls the tool again
 - **Multi-context handoff** — chaining two agent calls with different system prompts and an explicit handoff between them, not a multi-agent framework
 
-What it deliberately does **not** do: agent-to-agent communication, persistent memory, orchestration graphs. That's a different project.
-
-### What multi-context cost, measured
-
-Both demos answer the same question. `single` does it in one context; `multi` splits it in two,
-and the stages are deliberately not equal — the extraction stage is handed a tool list with
-`write_file` removed, so it gathers and nothing more, and the summarizing stage owns producing
-the report. That separation is the point: capability, not instruction.
-
-- **Two contexts cost more.** An earlier measurement put the split at roughly 40% more tokens.
-  Treat it as indicative: it ran on another model, and free endpoints vary too much for a single
-  percentage to mean much.
-- **The handoff is blind.** The second call receives only the text the first produced, never the
-  original question — so an error in step one travels to step two unchallenged. We watched a
-  failed extraction get faithfully summarised.
-- **What it buys** is per-stage logs and a second step with only one job.
-
-**Conclusion: for this task, one context wins.** Splitting pays off when the first stage is far
-bigger than the second, or when the stages genuinely need different tools, prompts or models —
-none of which is true here. Reach for it when you can name the reason, not by reflex.
-
-### What progressive disclosure costs, measured
-
-Token counts are deterministic, so this part needs no benchmark — it is the `prompt_tokens`
-the API reports for each system prompt, with everything else held equal:
-
-| System prompt contains | Tokens | Paid |
-|---|---|---|
-| The base prompt alone | 97 | — |
-| … plus both skill **descriptions** (on-demand) | 192 | **+95, every turn** |
-| … plus both full skill **bodies** (upfront) | 363 | **+266, every turn** |
-
-On-demand also pays for the `load_skill` schema (+27 every turn), and once a skill *is* loaded its
-body enters the conversation and is re-sent on every later turn (153 tokens for
-`income-statement-analysis`, 102 for `stock-report-format`). Counts are tokenizer-specific, so
-they move when you change `MODEL`; these were measured on the default above.
-
-So for the run above — 6 turns, both skills loaded early — loading on demand costs **more**
-than pasting both skills in from the start. That is the honest result, and it is not a flaw:
-a description is worth roughly 40% of its body here, so on-demand only wins once you leave a good
-third of your skills unloaded, and it wins bigger the more you leave untouched. Two skills with both
-loaded is the worst case for progressive disclosure. It pays off the way it does for Claude's own
-Skills: dozens available, one or two used.
+What it deliberately does **not** do: agent-to-agent communication, persistent memory, orchestration graphs, streaming, retry/backoff logic, a test suite. That's a different project.
 
 ## Steps
 
 | Step | What it adds | Where |
 |---|---|---|
-| 1 | A minimal call to the model through OpenRouter | `llm.py` |
+| 1 | A minimal call to the model through OpenRouter | `llm.py`, `completion_example.txt` |
 | 2 | A tool declared as a schema | `tools.py` |
 | 3 | Tool execution, `role: "tool"` messages, run logging | `tools.py`, `logger.py` |
 | 4 | The loop and its stop conditions | `main.py` |
@@ -105,15 +69,16 @@ Skills: dozens available, one or two used.
 
 ```
 nanoagent/
-├── llm.py       # API call wrapper (OpenRouter, OpenAI-compatible)
-├── tools.py     # tool schemas + execution (stock price, income statement, load_skill, write_file)
-├── skills.py    # skill discovery + loading
-├── prompts.py   # system prompts
-├── logger.py    # lightweight run logging
-├── skills/      # SKILL.md folders
-├── logs/        # run.log, one JSON line per model call (created on first run)
-├── reports/     # markdown written by the write_file tool (created on first run)
-└── main.py      # the loop
+├── llm.py                  # API call wrapper (OpenRouter, OpenAI-compatible)
+├── tools.py                # tool schemas + execution (stock price, income statement, load_skill, write_file)
+├── skills.py               # skill discovery + loading
+├── prompts.py              # system prompts
+├── logger.py               # lightweight run logging
+├── completion_example.txt  # a raw API response from step 1, kept for reference
+├── skills/                 # SKILL.md folders
+├── logs/                   # run.log, one JSON line per model call (created on first run)
+├── reports/                # markdown written by the write_file tool (created on first run)
+└── main.py                 # the loop
 ```
 
 ## Run it
@@ -157,7 +122,7 @@ different models and providers taught us:
   the skills exactly; sorting by throughput gave CoreWeave and Groq at **8s**, looser. Darkbloom
   also returned an HTTP 400 mid-run and sat behind several five-minute stalls.
 - **Thinking is billed but invisible.** Most models here reason before answering, inside
-  `tokens_completion` and absent from the reply — 30% of everything generated above, and on one
+  `tokens_completion` and absent from the reply — 78% of everything generated above, and on one
   free model a single turn spent 1327 of its 1351 tokens thinking, taking 29 seconds.
 - **Instruction design beat every code change.** That 1351-token turn was the model re-rendering
   a report it had already written to disk. One sentence added to `skills/stock-report-format/SKILL.md`
@@ -168,6 +133,48 @@ across all of this. Everything that actually decided cost, speed and correctness
 them — which model, which provider, and how the instructions were written. That is why `MODEL` is
 a single variable and why `logs/run.log` records the model, the provider, the tokens and the
 reasoning on every turn: none of the above is visible without it.
+
+### What multi-context cost, measured
+
+Both demos answer the same question. `single` does it in one context; `multi` splits it in two,
+and the stages are deliberately not equal — the extraction stage is handed a tool list with
+`write_file` removed, so it gathers and nothing more, and the summarizing stage owns producing
+the report. That separation is the point: capability, not instruction.
+
+- **Two contexts cost more.** An earlier measurement put the split at roughly 40% more tokens.
+  Treat it as indicative: it ran on another model, and free endpoints vary too much for a single
+  percentage to mean much.
+- **The handoff is blind.** The second call receives only the text the first produced, never the
+  original question — so an error in step one travels to step two unchallenged. We watched a
+  failed extraction get faithfully summarised.
+- **What it buys** is per-stage logs and a second step with only one job.
+
+**Conclusion: for this task, one context wins.** Splitting pays off when the first stage is far
+bigger than the second, or when the stages genuinely need different tools, prompts or models —
+none of which is true here. Reach for it when you can name the reason, not by reflex.
+
+### What progressive disclosure costs, measured
+
+Token counts are deterministic, so this part needs no benchmark — it is the `prompt_tokens`
+the API reports for each system prompt, with everything else held equal:
+
+| System prompt contains | Tokens | Paid |
+|---|---|---|
+| The base prompt alone | 97 | — |
+| … plus both skill **descriptions** (on-demand) | 192 | **+95, every turn** |
+| … plus both full skill **bodies** (upfront) | 363 | **+266, every turn** |
+
+On-demand also pays for the `load_skill` schema (+27 every turn), and once a skill *is* loaded its
+body enters the conversation and is re-sent on every later turn (153 tokens for
+`income-statement-analysis`, 102 for `stock-report-format`). Counts are tokenizer-specific, so
+they move when you change `MODEL`; these were measured on `openai/gpt-oss-20b`, the default in `llm.py`.
+
+So for the run above — 6 turns, both skills loaded early — loading on demand costs **more**
+than pasting both skills in from the start. That is the honest result, and it is not a flaw:
+a description is worth roughly 40% of its body here, so on-demand only wins once you leave a good
+third of your skills unloaded, and it wins bigger the more you leave untouched. Two skills with both
+loaded is the worst case for progressive disclosure. It pays off the way it does for Claude's own
+Skills: dozens available, one or two used.
 
 ## Glossary
 

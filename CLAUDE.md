@@ -11,7 +11,7 @@ The project is built in eight numbered steps, summarized in the **Steps** table 
 ## Non-negotiables
 
 - **No agent framework.** Dependencies are `openai` (for the OpenRouter-compatible client), `python-dotenv`, and `yfinance` (data source for the stock tools). If a task seems to need more, that's a signal to write it by hand, not to add a dependency.
-- **OpenRouter via the OpenAI-compatible SDK.** `base_url` swap on the standard `openai` client, not a bespoke HTTP client. The model is a single variable (`MODEL` in `llm.py`) — never hardcode a model name anywhere else, since swapping models with no code change is part of the point.
+- **OpenRouter via the OpenAI-compatible SDK.** `base_url` swap on the standard `openai` client, not a bespoke HTTP client. The model is a single variable (`MODEL` in `llm.py`) — never hardcode a model name anywhere else, since swapping models by editing that one line, and nothing else, is part of the point.
 - **OpenAI function-calling conventions, not Anthropic's native ones.** This project deliberately uses `tools` / `role: "tool"` / `tool_call_id` / `finish_reason == "stop"` — not `tool_use` / `input_schema` / `end_turn`. If you're used to the Anthropic Messages API, don't let those conventions leak in here.
 - **Skills are context, not actions.** `load_skill` returns text to be injected into the next message. It must never call an API, write a file, or have any side effect. If you catch yourself giving `load_skill` real side effects, you've turned it into a regular tool and lost the pedagogical point of step 7.
 - **Tools with side effects stay fenced.** `write_file` is a real tool, not a skill. It writes only `.md` files inside `reports/` (only the base name of the requested path is kept), and it saves to exactly the name it was given, overwriting if needed. Keep both guarantees if you touch it: the fencing stops the model writing anywhere else, and returning the requested name stops it reading a renamed file as a failure and calling the tool again.
@@ -22,7 +22,7 @@ The project is built in eight numbered steps, summarized in the **Steps** table 
 - Keep each file single-purpose, matching the structure in `README.md`. Don't merge `tools.py` and `skills.py`, or fold `logger.py` into `main.py`.
 - Favor explicit code over abstraction. The value of this repo is that every line is inspectable — no metaclasses, no decorator-based "magic" tool registration. `TOOL_DISPATCH` as a plain dict is intentional; keep it that way.
 - Comment the non-obvious parts, especially anywhere OpenRouter/OpenAI diverges from Anthropic's native API (`tool_calls[i].function.arguments` as a JSON string that needs `json.loads()`, message roles, the `finish_reason` check). Those comments are the teaching value of the repo — don't strip them out in a later cleanup pass.
-- Every turn goes through `logger.py` (`run.log`): iteration, tools called with their arguments, tokens, latency, and the model's answer. The terminal gets a one-line summary; the file keeps the full entry.
+- Every turn goes through `logger.py` (`logs/run.log`): the model and provider that answered, iteration, tools called with their arguments, tokens (including reasoning), latency, and the model's answer. The terminal gets a one-line summary; the file keeps the full entry.
 
 ## Implementing a step
 
