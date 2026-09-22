@@ -15,13 +15,25 @@ def _parse_arguments(raw: str):
         return raw
 
 
+def _describe(name, args):
+    """Turns a tool call into `load_skill -> income-statement-analysis` for the terminal line.
+
+    Long values are left out rather than truncated: write_file receives the whole report as an
+    argument, and that belongs in the log file, not on a one-line trace.
+    """
+    if not isinstance(args, dict):
+        return name
+    short = [str(v) for v in args.values() if len(str(v)) <= 40]
+    return f"{name} -> {', '.join(short)}" if short else name
+
+
 def _reasoning_tokens(usage):
     # Not every model reports this, so dig for it defensively rather than assume the shape.
     details = getattr(usage, "completion_tokens_details", None) if usage else None
     return getattr(details, "reasoning_tokens", None) if details else None
 
 
-def log_turn(iteration: int, tool_calls, usage, latency_s: float, content, log_path="logs/run.log"):
+def log_turn(iteration: int, tool_calls, usage, latency_s: float, content, model=None, log_path="logs/run.log"):
     """
     Records one model call.
 
@@ -29,9 +41,11 @@ def log_turn(iteration: int, tool_calls, usage, latency_s: float, content, log_p
     tool_calls: the tools the model asked to run (None if it answered with text)
     usage: token counts reported by the API (tokens are the units the model is billed in)
     content: the model's text answer (None when it only asks for tools)
+    model: which model actually answered, so old runs stay readable after MODEL changes
     """
     entry = {
         "timestamp": time.strftime("%m/%d/%Y %H:%M:%S"),
+        "model": model,
         "iteration": iteration,
         "tools_called": [tc.function.name for tc in (tool_calls or [])],
         # On the OpenAI side, arguments come as a JSON *string*, not a dict.
@@ -51,7 +65,7 @@ def log_turn(iteration: int, tool_calls, usage, latency_s: float, content, log_p
 
     # The file keeps everything (including long tool arguments); the terminal gets one
     # readable line, so a run reads as a trace instead of a wall of JSON.
-    what = ", ".join(entry["tools_called"]) or "answer"
+    what = ", ".join(_describe(n, a) for n, a in zip(entry["tools_called"], entry["tools_arguments"])) or "answer"
     reasoning = f" ({entry['tokens_reasoning']} reasoning)" if entry["tokens_reasoning"] else ""
     print(f"  [{iteration}] {what} | {entry['tokens_prompt']}→{entry['tokens_completion']} tokens"
           f"{reasoning} | {entry['latency_s']}s")

@@ -4,6 +4,5 @@ __pycache__/
 .venv
 
 spec.md
-formated_completion_object.py
 logs/*
 reports/*

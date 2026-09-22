@@ -117,17 +117,17 @@ figure, writes the report, and signs off in a single line.
 
 ```
 → openai/gpt-oss-20b
-  [0] load_skill | 419→68 tokens (40 reasoning) | 2.79s
-  [1] load_skill | 656→32 tokens (6 reasoning) | 3.88s
-  [2] get_stock_price | 810→30 tokens (5 reasoning) | 4.70s
-  [3] get_income_statement | 868→30 tokens (5 reasoning) | 2.86s
-  [4] write_file | 941→231 tokens (66 reasoning) | 5.38s
-  [5] answer | 1218→15 tokens | 2.47s
-reports/apple_report_20260922_101615.md
+  [0] load_skill -> income-statement-analysis | 419→68 tokens (40 reasoning) | 1.91s
+  [1] load_skill -> stock-report-format | 656→32 tokens (6 reasoning) | 3.53s
+  [2] get_stock_price -> AAPL | 810→30 tokens (5 reasoning) | 1.50s
+  [3] get_income_statement -> AAPL | 868→30 tokens (5 reasoning) | 4.55s
+  [4] write_file -> apple_report.md | 941→232 tokens (62 reasoning) | 5.66s
+  [5] answer | 1219→15 tokens | 3.64s
+reports/apple_report_20260922_105458.md
 ```
 
-Nothing in the code decides that order — the model does, one turn at a time. Notice
-`tokens_prompt` climbing from 419 to 1218: every turn re-sends the whole conversation,
+Nothing in the code decides that order — the model does, one turn at a time. It loads two skills because the question asks for two things, interpretation and a written report, and each `load_skill` call takes one name. Long arguments are kept out of the printed line; `logs/run.log` stores every call in full, including the report body handed to `write_file`, and which model answered. Notice
+`tokens_prompt` climbing from 419 to 1219: every turn re-sends the whole conversation,
 which is what makes context size a running cost rather than a one-off.
 
 The `reasoning` figures are the other half of the story. Many models on OpenRouter are reasoning

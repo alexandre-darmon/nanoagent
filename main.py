@@ -36,7 +36,9 @@ def run_agent(system_prompt: str, user_message: str, tools: list, max_iterations
         latency = time.time() - start
 
         choice = response.choices[0]
-        log_turn(i, choice.message.tool_calls, response.usage, latency, choice.message.content)
+        # response.model is what actually answered, which is not always what we asked for:
+        # OpenRouter may route elsewhere. Log that rather than our own MODEL constant.
+        log_turn(i, choice.message.tool_calls, response.usage, latency, choice.message.content, response.model)
 
         # Keep the model's message as-is in the history: when it asks for tools it carries the
         # tool_calls, and each tool result below must point back to one of them.
