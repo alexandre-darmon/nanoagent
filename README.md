@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/nanoagent-readme-banner.svg" alt="nanoagent — a raw agent loop built from scratch, no framework" width="100%">
+</p>
+
 # nanoagent
 
 A raw agent loop built from scratch — no framework. Just the request/response cycle, function calling, and a lightweight skills system, written in plain Python so every moving part stays visible.
@@ -78,6 +82,7 @@ nanoagent/
 ├── skills/                 # SKILL.md folders
 ├── logs/                   # run.log, one JSON line per model call (created on first run)
 ├── reports/                # markdown written by the write_file tool (created on first run)
+├── docs/assets/            # README banner
 └── main.py                 # the loop
 ```
 
